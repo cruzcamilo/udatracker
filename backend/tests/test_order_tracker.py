@@ -36,6 +36,15 @@ def sample_order():
         "customer_id": "CUST001"
     }
 
+@pytest.fixture
+def sample_orders():
+    """Provides bulk orders that can be reused across list-related tests."""
+    return {
+        "ORD1": {"order_id": "ORD1", "item_name": "A", "quantity": 1, "customer_id": "C1", "status": "pending"},
+        "ORD2": {"order_id": "ORD2", "item_name": "B", "quantity": 2, "customer_id": "C2", "status": "shipped"},
+        "ORD3": {"order_id": "ORD3", "item_name": "C", "quantity": 1, "customer_id": "C3", "status": "pending"},
+    }
+
 @pytest.mark.parametrize("status,expected_status", [
     (None, "pending"),           # Default status
     ("shipped", "shipped"),       # Explicit status
@@ -114,3 +123,125 @@ def test_add_order_with_invalid_status(order_tracker):
     """Tests that adding an order with invalid status raises ValueError."""
     with pytest.raises(ValueError, match="Invalid status"):
         order_tracker.add_order("ORD002", "Item", 1, "CUST001", status="invalid_status")
+
+
+def test_update_order_status_success(order_tracker, mock_storage):
+    """Tests update_order_status updates status when order exists and new status is valid."""
+    existing_order = {
+        "order_id": "ORD001",
+        "item_name": "Laptop",
+        "quantity": 1,
+        "customer_id": "CUST001",
+        "status": "pending"
+    }
+    mock_storage.get_order.return_value = existing_order
+
+    updated = order_tracker.update_order_status("ORD001", "shipped")
+
+    assert updated["status"] == "shipped"
+    assert existing_order["status"] == "pending"  # no in-place mutation
+    assert updated is not existing_order
+
+    mock_storage.get_order.assert_called_once_with("ORD001")
+    mock_storage.save_order.assert_called_once_with("ORD001", updated)
+
+
+def test_update_order_status_invalid_status_fails_fast_no_storage_read(order_tracker, mock_storage):
+    """Tests invalid status raises before calling storage.get_order."""
+    with pytest.raises(ValueError, match="Invalid status"):
+        order_tracker.update_order_status("ORD001", "not-a-status")
+
+    mock_storage.get_order.assert_not_called()
+    mock_storage.save_order.assert_not_called()
+
+
+def test_update_order_status_nonexistent_order_raises(order_tracker, mock_storage):
+    """Tests updating status for non-existent order raises ValueError."""
+    mock_storage.get_order.return_value = None
+
+    with pytest.raises(ValueError, match="does not exist"):
+        order_tracker.update_order_status("ORD_DOES_NOT_EXIST", "shipped")
+
+
+def test_update_order_status_empty_order_id_raises(order_tracker):
+    """Tests empty order_id raises ValueError."""
+    with pytest.raises(ValueError, match="Order ID cannot be empty"):
+        order_tracker.update_order_status("", "shipped")
+
+
+def test_list_all_orders_empty_storage(order_tracker):
+    """Tests that list_all_orders returns empty list when no orders present."""
+    assert order_tracker.list_all_orders() == []
+
+
+def test_list_all_orders_multiple_orders(order_tracker, mock_storage, sample_orders):
+    """Tests list_all_orders returns all orders independent of order ordering."""
+    mock_storage.get_all_orders.return_value = sample_orders
+
+    results = order_tracker.list_all_orders()
+
+    assert {order["order_id"] for order in results} == {"ORD1", "ORD2", "ORD3"}
+
+
+@pytest.mark.parametrize("status,expected_ids", [
+    ("pending", {"ORD1", "ORD3"}),
+    ("shipped", {"ORD2"}),
+    ("cancelled", set()),
+])
+def test_list_orders_by_status(order_tracker, mock_storage, sample_orders, status, expected_ids):
+    """Tests list_orders_by_status for matching and non-matching results."""
+    mock_storage.get_all_orders.return_value = sample_orders
+
+    results = order_tracker.list_orders_by_status(status)
+
+    assert {order["order_id"] for order in results} == expected_ids
+
+
+def test_list_orders_by_status_empty_storage(order_tracker):
+    """Tests list_orders_by_status returns only matching status orders."""
+    orders_dict = {
+        "ORD1": {"order_id": "ORD1", "item_name": "A", "quantity": 1, "customer_id": "C1", "status": "pending"},
+        "ORD2": {"order_id": "ORD2", "item_name": "B", "quantity": 2, "customer_id": "C2", "status": "shipped"},
+        "ORD3": {"order_id": "ORD3", "item_name": "C", "quantity": 1, "customer_id": "C3", "status": "pending"},
+    }
+    mock_storage.get_all_orders.return_value = orders_dict
+
+    results = order_tracker.list_orders_by_status("pending")
+
+    assert len(results) == 2
+    assert all(order["status"] == "pending" for order in results)
+
+
+def test_list_orders_by_status_none_match(order_tracker, mock_storage):
+    """Tests list_orders_by_status returns empty list when no orders match."""
+    orders_dict = {
+        "ORD1": {"order_id": "ORD1", "item_name": "A", "quantity": 1, "customer_id": "C1", "status": "processing"},
+        "ORD2": {"order_id": "ORD2", "item_name": "B", "quantity": 2, "customer_id": "C2", "status": "cancelled"},
+    }
+    mock_storage.get_all_orders.return_value = orders_dict
+
+    results = order_tracker.list_orders_by_status("shipped")
+
+    assert results == []
+
+
+def test_list_orders_by_status_empty_storage(order_tracker):
+    """Tests list_orders_by_status returns empty list when storage has no orders."""
+    assert order_tracker.list_orders_by_status("pending") == []
+
+
+def test_list_orders_by_status_invalid_status_raises(order_tracker):
+    """Tests list_orders_by_status raises for empty/invalid status."""
+    with pytest.raises(ValueError, match="Status cannot be empty"):
+        order_tracker.list_orders_by_status("")
+
+    with pytest.raises(ValueError, match="Invalid status"):
+        order_tracker.list_orders_by_status("invalid")
+
+
+def test_valid_statuses_constant():
+    """Ensures the status set is defined and immutable in a single place."""
+    from ..order_tracker import OrderTracker
+
+    assert set(OrderTracker.VALID_STATUSES) == {"pending", "processing", "shipped", "delivered", "cancelled"}
+
