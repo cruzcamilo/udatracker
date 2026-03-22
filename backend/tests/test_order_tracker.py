@@ -52,21 +52,25 @@ def sample_orders():
 ])
 def test_add_order_with_status(order_tracker, mock_storage, sample_order, status, expected_status):
     """Tests adding a new order with default or explicit status."""
-    kwargs = {
+    order_params = {
         "order_id": sample_order["order_id"],
         "item_name": sample_order["item_name"],
         "quantity": sample_order["quantity"],
         "customer_id": sample_order["customer_id"]
     }
     if status:
-        kwargs["status"] = status
+        order_params["status"] = status
     
-    order_tracker.add_order(**kwargs)
+    order_tracker.add_order(**order_params)
     
     # Verify save_order was called with correct status
     args, call_kwargs = mock_storage.save_order.call_args
     saved_data = args[1]
     assert saved_data["status"] == expected_status
+    assert saved_data["order_id"] == sample_order["order_id"]
+    assert saved_data["item_name"] == sample_order["item_name"]
+    assert saved_data["quantity"] == sample_order["quantity"]
+    assert saved_data["customer_id"] == sample_order["customer_id"]
 
 def test_add_order_raises_error_if_exists(order_tracker, mock_storage):
     """Tests that adding an order with a duplicate ID raises a ValueError."""
@@ -108,16 +112,16 @@ def test_add_order_invalid_quantity(order_tracker, quantity):
 ])
 def test_add_order_missing_required_fields(order_tracker, field, value, error_message):
     """Tests that adding an order with missing required fields raises ValueError."""
-    kwargs = {
+    order_params = {
         "order_id": "ORD002",
         "item_name": "Item",
         "quantity": 1,
         "customer_id": "CUST001"
     }
-    kwargs[field] = value
+    order_params[field] = value
     
     with pytest.raises(ValueError, match=error_message):
-        order_tracker.add_order(**kwargs)
+        order_tracker.add_order(**order_params)
 
 def test_add_order_with_invalid_status(order_tracker):
     """Tests that adding an order with invalid status raises ValueError."""
@@ -139,6 +143,10 @@ def test_update_order_status_success(order_tracker, mock_storage):
     updated = order_tracker.update_order_status("ORD001", "shipped")
 
     assert updated["status"] == "shipped"
+    assert updated["order_id"] == "ORD001"
+    assert updated["item_name"] == "Laptop"
+    assert updated["quantity"] == 1
+    assert updated["customer_id"] == "CUST001"
     assert existing_order["status"] == "pending"  # no in-place mutation
     assert updated is not existing_order
 
@@ -180,7 +188,11 @@ def test_list_all_orders_multiple_orders(order_tracker, mock_storage, sample_ord
 
     results = order_tracker.list_all_orders()
 
-    assert {order["order_id"] for order in results} == {"ORD1", "ORD2", "ORD3"}
+    assert len(results) == 3
+    result_dict = {order["order_id"]: order for order in results}
+    for order_id, expected_order in sample_orders.items():
+        assert order_id in result_dict
+        assert result_dict[order_id] == expected_order
 
 
 @pytest.mark.parametrize("status,expected_ids", [
@@ -194,10 +206,14 @@ def test_list_orders_by_status(order_tracker, mock_storage, sample_orders, statu
 
     results = order_tracker.list_orders_by_status(status)
 
-    assert {order["order_id"] for order in results} == expected_ids
+    assert len(results) == len(expected_ids)
+    result_dict = {order["order_id"]: order for order in results}
+    for order_id in expected_ids:
+        assert order_id in result_dict
+        assert result_dict[order_id] == sample_orders[order_id]
 
 
-def test_list_orders_by_status_empty_storage(order_tracker):
+def test_list_orders_by_status_with_matching_orders(order_tracker, mock_storage):
     """Tests list_orders_by_status returns only matching status orders."""
     orders_dict = {
         "ORD1": {"order_id": "ORD1", "item_name": "A", "quantity": 1, "customer_id": "C1", "status": "pending"},
@@ -209,7 +225,9 @@ def test_list_orders_by_status_empty_storage(order_tracker):
     results = order_tracker.list_orders_by_status("pending")
 
     assert len(results) == 2
-    assert all(order["status"] == "pending" for order in results)
+    result_dict = {order["order_id"]: order for order in results}
+    assert result_dict["ORD1"] == orders_dict["ORD1"]
+    assert result_dict["ORD3"] == orders_dict["ORD3"]
 
 
 def test_list_orders_by_status_none_match(order_tracker, mock_storage):
@@ -222,7 +240,7 @@ def test_list_orders_by_status_none_match(order_tracker, mock_storage):
 
     results = order_tracker.list_orders_by_status("shipped")
 
-    assert results == []
+    assert len(results) == 0
 
 
 def test_list_orders_by_status_empty_storage(order_tracker):
