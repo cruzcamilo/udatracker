@@ -1,3 +1,8 @@
+"""Flask API for order management.
+
+Provides REST endpoints for creating, retrieving, updating, and listing orders.
+Serves static files from the frontend directory.
+"""
 from flask import Flask, request, jsonify, send_from_directory
 from backend.order_tracker import OrderTracker
 from backend.in_memory_storage import InMemoryStorage
@@ -8,14 +13,17 @@ order_tracker = OrderTracker(in_memory_storage)
 
 @app.route('/')
 def serve_index():
+    """Serve the main index.html page."""
     return send_from_directory(app.static_folder, 'index.html')
 
 @app.route('/<path:filename>')
 def serve_static(filename):
+    """Serve static files (CSS, JS) from the frontend directory."""
     return send_from_directory(app.static_folder, filename)
 
 @app.route('/api/orders', methods=['POST'])
 def add_order_api():
+    """Create a new order from JSON request body. Returns 201 on success, 400 on error."""
     data = request.get_json(silent=True)
     if not data:
         return jsonify({"error": "JSON body is required."}), 400
@@ -35,6 +43,7 @@ def add_order_api():
 
 @app.route('/api/orders/<string:order_id>', methods=['GET'])
 def get_order_api(order_id):
+    """Retrieve a single order by ID. Returns 200 if found, 404 if not found, 400 on error."""
     try:
         order = order_tracker.get_order_by_id(order_id)
     except ValueError as exc:
@@ -48,6 +57,7 @@ def get_order_api(order_id):
 
 @app.route('/api/orders/<string:order_id>/status', methods=['PUT'])
 def update_order_status_api(order_id):
+    """Update the status of an order. Returns 200 on success, 404 if order not found, 400 on error."""
     data = request.get_json(silent=True)
     if not data or 'new_status' not in data:
         return jsonify({"error": "new_status is required."}), 400
@@ -64,6 +74,7 @@ def update_order_status_api(order_id):
 
 @app.route('/api/orders', methods=['GET'])
 def list_orders_api():
+    """List all orders or filter by status. Accepts optional 'status' query parameter."""
     status = request.args.get('status')
     try:
         if status:

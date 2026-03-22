@@ -9,6 +9,7 @@ class OrderTracker:
     VALID_STATUSES = ["pending", "processing", "shipped", "delivered", "cancelled"]
 
     def __init__(self, storage):
+        """Initialize OrderTracker with a storage backend. Validates required storage methods."""
         required_methods = ['save_order', 'get_order', 'get_all_orders']
         for method in required_methods:
             if not hasattr(storage, method) or not callable(getattr(storage, method)):
@@ -16,16 +17,19 @@ class OrderTracker:
         self.storage = storage
 
     def _validate_order_id(self, order_id):
+        """Validate that order_id is not empty. Raises ValueError if invalid."""
         if not order_id or not str(order_id).strip():
             raise ValueError("Order ID cannot be empty.")
 
     def _validate_status(self, status):
+        """Validate that status is not empty and is in VALID_STATUSES. Raises ValueError if invalid."""
         if not status or not str(status).strip():
             raise ValueError("Status cannot be empty.")
         if status not in self.VALID_STATUSES:
             raise ValueError(f"Invalid status '{status}'. Must be one of {self.VALID_STATUSES}.")
 
     def _normalize_orders(self, orders):
+        """Convert storage output to a consistent list format. Handles dict, list, or None."""
         if orders is None:
             return []
         if isinstance(orders, dict):
@@ -35,6 +39,7 @@ class OrderTracker:
         raise TypeError("Storage.get_all_orders() must return dict or list")
 
     def add_order(self, order_id: str, item_name: str, quantity: int, customer_id: str, status: str = "pending"):
+        """Create and save a new order. Validates all fields and checks for duplicates. Returns order dict."""
         # Validate required fields
         self._validate_order_id(order_id)
         if not item_name or not item_name.strip():
@@ -66,10 +71,12 @@ class OrderTracker:
         return order_data
 
     def get_order_by_id(self, order_id: str):
+        """Retrieve a single order by ID. Returns order dict or None if not found."""
         self._validate_order_id(order_id)
         return self.storage.get_order(order_id)
 
     def update_order_status(self, order_id: str, new_status: str):
+        """Update the status of an existing order. Returns updated order dict. Raises ValueError if order not found."""
         self._validate_order_id(order_id)
         self._validate_status(new_status)
 
@@ -83,10 +90,12 @@ class OrderTracker:
         return updated_order
 
     def list_all_orders(self):
+        """Retrieve all orders from storage. Returns a list of order dicts."""
         orders = self.storage.get_all_orders()
         return self._normalize_orders(orders)
 
     def list_orders_by_status(self, status: str):
+        """Retrieve all orders matching the given status. Returns list of order dicts. Raises ValueError if status is invalid."""
         if not status or not str(status).strip():
             raise ValueError("Status cannot be empty.")
 
